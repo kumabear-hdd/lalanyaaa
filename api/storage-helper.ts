@@ -2,9 +2,11 @@ import fs from 'fs';
 import path from 'path';
 import { put, list, del } from '@vercel/blob';
 import { INITIAL_MEMORIES, MemoryItem } from '../src/utils/memories.js';
+import { DEFAULT_SITE_CONTENT, SiteContent, mergeSiteContent } from '../src/utils/siteContent.js';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const LOCAL_JSON_FILE = path.join(DATA_DIR, 'memories.json');
+const LOCAL_SITE_CONTENT_FILE = path.join(DATA_DIR, 'site-content.json');
 const LOCAL_UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 
 // Ensure local directories exist
@@ -199,6 +201,69 @@ export async function deleteImageFile(urlOrPathname: string): Promise<void> {
       await del(urlOrPathname);
     } catch (err) {
       console.error('Error deleting from Vercel Blob:', err);
+    }
+  }
+}
+
+/**
+ * Loads shared site content (names, messages, letters) from Vercel Blob or local storage.
+ */
+export async function getSharedSiteContent(): Promise<SiteContent> {
+  if (HAS_VERCEL_BLOB) {
+    try {
+      const { blobs } = await list({ prefix: 'database/site_content.json' });
+      if (blobs && blobs.length > 0) {
+        const res = await fetch(`${blobs[0].url}?t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          return mergeSiteContent(data);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching site_content from Vercel Blob:', err);
+    }
+  }
+
+  // Local file fallback
+  if (fs.existsSync(LOCAL_SITE_CONTENT_FILE)) {
+    try {
+      const content = fs.readFileSync(LOCAL_SITE_CONTENT_FILE, 'utf8');
+      const parsed = JSON.parse(content);
+      return mergeSiteContent(parsed);
+    } catch (err) {
+      console.error('Error reading local site-content.json:', err);
+    }
+  }
+
+  return { ...DEFAULT_SITE_CONTENT };
+}
+
+/**
+ * Saves shared site content (names, messages, letters) to Vercel Blob and local storage.
+ */
+export async function saveSharedSiteContent(content: SiteContent): Promise<void> {
+  const merged = mergeSiteContent(content);
+
+  // Save locally
+  try {
+    fs.writeFileSync(LOCAL_SITE_CONTENT_FILE, JSON.stringify(merged, null, 2), 'utf8');
+  } catch (err) {
+    console.error('Error writing local site-content.json:', err);
+  }
+
+  if (HAS_VERCEL_BLOB) {
+    try {
+      await put('database/site_content.json', JSON.stringify(merged), {
+        access: 'public',
+        addRandomSuffix: false,
+        contentType: 'application/json',
+        cacheControlMaxAge: 0
+      });
+    } catch (err) {
+      console.error('Error saving site_content to Vercel Blob:', err);
     }
   }
 }

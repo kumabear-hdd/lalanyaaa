@@ -34,6 +34,7 @@ import {
   migrateLocalPhotosToCloud,
   SyncProgress
 } from '../services/api.js';
+import { AdminPasscodeModal } from './AdminPasscodeModal.js';
 
 interface MemoriesAppProps {
   memories: MemoryItem[];
@@ -58,6 +59,8 @@ export const MemoriesApp: React.FC<MemoriesAppProps> = ({
   const [editingMemory, setEditingMemory] = useState<MemoryItem | null>(null);
   const [isResetModalOpen, setIsResetModalOpen] = useState<boolean>(false);
   const [randomMemory, setRandomMemory] = useState<MemoryItem | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
+  const [pendingAuthAction, setPendingAuthAction] = useState<(() => Promise<void>) | null>(null);
 
   // Migration state for laptop's local photos
   const unmigratedLocalMemories = useMemo(() => {
@@ -204,6 +207,11 @@ export const MemoriesApp: React.FC<MemoriesAppProps> = ({
       setUploadSuccessToast('Foto berhasil disimpan ke Cloud & Semesta Bersama! 💖');
       setTimeout(() => setUploadSuccessToast(null), 4000);
     } catch (err: any) {
+      if (err.code === 'UNAUTHORIZED') {
+        setPendingAuthAction(() => () => handleSaveAddMemory(e));
+        setIsAuthModalOpen(true);
+        return;
+      }
       setFormFileError(err.message || 'Gagal menyimpan foto. Silakan coba lagi.');
     } finally {
       setIsSubmitting(false);
@@ -260,6 +268,11 @@ export const MemoriesApp: React.FC<MemoriesAppProps> = ({
       setUploadSuccessToast('Perubahan memori berhasil disimpan! ✨');
       setTimeout(() => setUploadSuccessToast(null), 3000);
     } catch (err: any) {
+      if (err.code === 'UNAUTHORIZED') {
+        setPendingAuthAction(() => () => handleSaveEditMemory(e));
+        setIsAuthModalOpen(true);
+        return;
+      }
       setFormFileError(err.message || 'Gagal memperbarui memori.');
     } finally {
       setIsSubmitting(false);
@@ -281,6 +294,11 @@ export const MemoriesApp: React.FC<MemoriesAppProps> = ({
       setUploadSuccessToast('Foto kenangan telah dihapus.');
       setTimeout(() => setUploadSuccessToast(null), 3000);
     } catch (err: any) {
+      if (err.code === 'UNAUTHORIZED') {
+        setPendingAuthAction(() => () => handleDeleteMemory(id));
+        setIsAuthModalOpen(true);
+        return;
+      }
       alert(`Gagal menghapus: ${err.message}`);
     }
   };
@@ -1227,6 +1245,18 @@ export const MemoriesApp: React.FC<MemoriesAppProps> = ({
           </div>
         </div>
       )}
+
+      {/* ADMIN PASSCODE MODAL */}
+      <AdminPasscodeModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSuccess={() => {
+          if (pendingAuthAction) {
+            pendingAuthAction();
+            setPendingAuthAction(null);
+          }
+        }}
+      />
     </div>
   );
 };

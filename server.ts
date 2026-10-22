@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import memoriesHandler from './api/memories.js';
 import uploadHandler from './api/upload.js';
+import siteContentHandler from './api/site-content.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,6 +24,7 @@ async function startServer() {
   // Mount API endpoints
   app.all('/api/memories', (req, res) => memoriesHandler(req, res));
   app.all('/api/upload', (req, res) => uploadHandler(req, res));
+  app.all('/api/site-content', (req, res) => siteContentHandler(req, res));
 
   // Health check
   app.get('/api/health', (req, res) => {

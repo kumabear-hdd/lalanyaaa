@@ -1,6 +1,13 @@
 import { INITIAL_MEMORIES, MemoryItem } from '../utils/memories.js';
+import {
+  DEFAULT_SITE_CONTENT,
+  SiteContent,
+  mergeSiteContent,
+  decodeContentFromUrlParam
+} from '../utils/siteContent.js';
 
 const LOCAL_STORAGE_CACHE_KEY = 'our_little_universe_all_memories_v2';
+const SITE_CONTENT_CACHE_KEY = 'our_little_universe_site_content_v1';
 const FAVORITES_KEY = 'our_little_universe_favorites';
 
 export interface SyncProgress {
@@ -71,19 +78,45 @@ export function toggleLocalFavorite(id: string, isFav: boolean): void {
   } catch {}
 }
 
+const ADMIN_PASSCODE_KEY = 'our_universe_admin_passcode';
+
+export function getStoredAdminPasscode(): string {
+  if (typeof window === 'undefined') return '';
+  return sessionStorage.getItem(ADMIN_PASSCODE_KEY) || localStorage.getItem(ADMIN_PASSCODE_KEY) || '';
+}
+
+export function setStoredAdminPasscode(pin: string): void {
+  if (typeof window === 'undefined') return;
+  sessionStorage.setItem(ADMIN_PASSCODE_KEY, pin.trim());
+  localStorage.setItem(ADMIN_PASSCODE_KEY, pin.trim());
+}
+
+export function clearStoredAdminPasscode(): void {
+  if (typeof window === 'undefined') return;
+  sessionStorage.removeItem(ADMIN_PASSCODE_KEY);
+  localStorage.removeItem(ADMIN_PASSCODE_KEY);
+}
+
+function getAuthHeaders(): Record<string, string> {
+  const pin = getStoredAdminPasscode();
+  return pin ? { 'x-admin-passcode': pin } : {};
+}
+
 export async function uploadPhotoDataUrl(
   dataUrl: string,
   filename?: string
 ): Promise<{ url: string; size?: number }> {
   const res = await fetch('/api/upload', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify({ dataUrl, filename })
   });
 
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}));
-    throw new Error(errData.error || `Upload failed with status ${res.status}`);
+    const err: any = new Error(errData.error || `Upload failed with status ${res.status}`);
+    err.code = errData.code || (res.status === 401 ? 'UNAUTHORIZED' : undefined);
+    throw err;
   }
 
   const data = await res.json();
@@ -95,13 +128,15 @@ export async function createMemory(
 ): Promise<MemoryItem> {
   const res = await fetch('/api/memories', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify(item)
   });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to create memory (${res.status})`);
+    const errData = await res.json().catch(() => ({}));
+    const err: any = new Error(errData.error || `Failed to create memory (${res.status})`);
+    err.code = errData.code || (res.status === 401 ? 'UNAUTHORIZED' : undefined);
+    throw err;
   }
 
   const data = await res.json();
@@ -114,13 +149,15 @@ export async function updateMemory(item: MemoryItem): Promise<MemoryItem> {
 
   const res = await fetch('/api/memories', {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify(item)
   });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to update memory (${res.status})`);
+    const errData = await res.json().catch(() => ({}));
+    const err: any = new Error(errData.error || `Failed to update memory (${res.status})`);
+    err.code = errData.code || (res.status === 401 ? 'UNAUTHORIZED' : undefined);
+    throw err;
   }
 
   const data = await res.json();
@@ -129,23 +166,29 @@ export async function updateMemory(item: MemoryItem): Promise<MemoryItem> {
 
 export async function deleteMemory(id: string): Promise<void> {
   const res = await fetch(`/api/memories?id=${encodeURIComponent(id)}`, {
-    method: 'DELETE'
+    method: 'DELETE',
+    headers: { ...getAuthHeaders() }
   });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to delete memory (${res.status})`);
+    const errData = await res.json().catch(() => ({}));
+    const err: any = new Error(errData.error || `Failed to delete memory (${res.status})`);
+    err.code = errData.code || (res.status === 401 ? 'UNAUTHORIZED' : undefined);
+    throw err;
   }
 }
 
 export async function resetMemoriesToDefault(): Promise<MemoryItem[]> {
   const res = await fetch('/api/memories?action=reset', {
-    method: 'POST'
+    method: 'POST',
+    headers: { ...getAuthHeaders() }
   });
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `Failed to reset memories (${res.status})`);
+    const errData = await res.json().catch(() => ({}));
+    const err: any = new Error(errData.error || `Failed to reset memories (${res.status})`);
+    err.code = errData.code || (res.status === 401 ? 'UNAUTHORIZED' : undefined);
+    throw err;
   }
 
   const data = await res.json();
@@ -231,4 +274,103 @@ export async function migrateLocalPhotosToCloud(
   }
 
   return { successCount, failedCount };
+}
+
+/**
+ * Loads shared site content (names, messages, letters).
+ * Priority order:
+ * 1. URL parameter (?c=... or ?content=...) if opened via direct snapshot share link
+ * 2. Shared cloud server endpoint (/api/site-content)
+ * 3. Local browser cache
+ * 4. Default template
+ */
+export async function fetchSiteContent(): Promise<SiteContent> {
+  // Check URL parameter first (allows instant sharing of message snapshots)
+  if (typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search);
+    const urlContent = params.get('c') || params.get('content');
+    if (urlContent) {
+      const decoded = decodeContentFromUrlParam(urlContent);
+      if (decoded) {
+        // Save to cache and cloud server in background
+        saveSiteContent(decoded).catch(() => {});
+        return decoded;
+      }
+    }
+  }
+
+  // Fetch from serverless backend
+  try {
+    const res = await fetch('/api/site-content', { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.content) {
+        const merged = mergeSiteContent(data.content);
+        try {
+          localStorage.setItem(SITE_CONTENT_CACHE_KEY, JSON.stringify(merged));
+        } catch {}
+        return merged;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to fetch from /api/site-content, falling back to local cache:', err);
+  }
+
+  return getCachedSiteContent();
+}
+
+export function getCachedSiteContent(): SiteContent {
+  try {
+    const raw = localStorage.getItem(SITE_CONTENT_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return mergeSiteContent(parsed);
+    }
+  } catch {}
+  return { ...DEFAULT_SITE_CONTENT };
+}
+
+export async function saveSiteContent(content: SiteContent): Promise<SiteContent> {
+  const merged = mergeSiteContent(content);
+
+  // Cache locally
+  try {
+    localStorage.setItem(SITE_CONTENT_CACHE_KEY, JSON.stringify(merged));
+  } catch {}
+
+  // Save to shared server / cloud
+  const res = await fetch('/api/site-content', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+    body: JSON.stringify(merged)
+  });
+
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}));
+    const err: any = new Error(errData.error || `Failed to save site content (${res.status})`);
+    err.code = errData.code || (res.status === 401 ? 'UNAUTHORIZED' : undefined);
+    throw err;
+  }
+
+  const data = await res.json();
+  return data.content || merged;
+}
+
+export async function resetSiteContentToDefault(): Promise<SiteContent> {
+  try {
+    localStorage.removeItem(SITE_CONTENT_CACHE_KEY);
+  } catch {}
+
+  const res = await fetch('/api/site-content', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+    body: JSON.stringify({ action: 'reset' })
+  });
+
+  if (!res.ok) {
+    return { ...DEFAULT_SITE_CONTENT };
+  }
+
+  const data = await res.json();
+  return data.content || { ...DEFAULT_SITE_CONTENT };
 }

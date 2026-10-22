@@ -1,26 +1,19 @@
 import React, { useState } from 'react';
 import { Mail, Heart, RefreshCw } from 'lucide-react';
+import { DEFAULT_SITE_CONTENT, SiteContent } from '../utils/siteContent.js';
 
-export const LoveLetterApp: React.FC = () => {
+interface LoveLetterAppProps {
+  letterData?: SiteContent['loveLetter'];
+  recipientName?: string;
+  senderName?: string;
+}
+
+export const LoveLetterApp: React.FC<LoveLetterAppProps> = ({
+  letterData = DEFAULT_SITE_CONTENT.loveLetter,
+  recipientName = 'Lalaa',
+  senderName = 'Aa'
+}) => {
   const [isOpen, setIsOpen] = useState(false);
-
-  const letterData = {
-    recipient: 'Lalaa',
-    sender: 'Aa',
-    salutation: 'Halooo, wanita hebatnya Aa. 💗',
-    paragraphs: [
-      'Selamat datang di dunia kecil yang Aa siapkan khusus buat Lalaa.',
-      'Di sini, Aa mengumpulkan potongan-potongan cerita kita. Ada foto, lagu, dan kenangan yang mungkin terlihat sederhana, tetapi punya arti tersendiri buat Aa.',
-      'Aa mungkin nggak selalu bisa merangkai kata dengan sempurna, tetapi Aa ingin kamu tahu bahwa setiap momen yang kita punya adalah sesuatu yang layak disyukuri.',
-      'Semoga setiap kali kamu membuka halaman ini, ada senyum kecil yang muncul. Semoga hari-hari kamu dipenuhi hal baik, hati kamu dikuatkan, dan langkah kamu dimudahkan.',
-      'Terima kasih sudah menjadi bagian dari cerita yang begitu berarti buat Aa.',
-      'Kalau suatu hari Lalaa rindu dengan kenangan-kenangan ini, semoga dunia kecil kita bisa menjadi tempat yang hangat untuk mengingatnya kembali.',
-      'Jaga diri baik-baik, wanita hebatku.'
-    ],
-    signOff: 'Dari Aa, yang selalu mendoakan hal-hal baik untuk Lalaa. 💗',
-    footerQuote: 'Satu dunia kecil, berisi cerita kita.',
-    dateStr: 'Untuk Lalaa tersayang'
-  };
 
   return (
     <div className={`h-full bg-[#FFF9F2] overflow-y-auto p-4 md:p-8 flex flex-col items-center ${isOpen ? 'justify-start' : 'justify-center'} select-none`}>
@@ -32,16 +25,16 @@ export const LoveLetterApp: React.FC = () => {
               <Heart className="w-7 h-7 fill-white" />
             </div>
             <div className="absolute bottom-3 text-xs font-handwritten text-[#634B50]/70">
-              Khusus untuk Lalaa
+              Khusus untuk {recipientName}
             </div>
           </div>
 
           <div className="space-y-2">
             <h3 className="font-handwritten text-3xl font-bold text-[#634B50]">
-              Surat Cinta dari Aa
+              Surat Cinta dari {senderName}
             </h3>
             <p className="text-xs text-[#634B50]/75">
-              "Ada beberapa patah kata sederhana yang ingin Aa sampaikan..."
+              "Ada beberapa patah kata sederhana yang ingin disampaikan..."
             </p>
           </div>
 
@@ -73,7 +66,7 @@ export const LoveLetterApp: React.FC = () => {
           <div className="space-y-4 font-serif-romantic text-sm md:text-base leading-relaxed text-[#634B50]/90">
             <p className="font-bold text-base text-[#634B50]">{letterData.salutation}</p>
             {letterData.paragraphs.map((p, idx) => (
-              <p key={idx} className="indent-4">
+              <p key={idx} className="indent-4 leading-relaxed">
                 {p}
               </p>
             ))}

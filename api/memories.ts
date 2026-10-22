@@ -7,11 +7,12 @@ import {
   deleteImageFile
 } from './storage-helper.js';
 import { INITIAL_MEMORIES, MemoryItem } from '../src/utils/memories.js';
+import { isAuthorizedAdmin } from './auth-helper.js';
 
 export default async function handler(req: Request, res: Response) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-admin-passcode, Authorization');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -21,6 +22,14 @@ export default async function handler(req: Request, res: Response) {
     if (req.method === 'GET') {
       const memories = await getSharedMemories();
       return res.status(200).json({ success: true, memories });
+    }
+
+    // Protect write operations (POST, PUT, DELETE)
+    if (!isAuthorizedAdmin(req)) {
+      return res.status(401).json({
+        error: 'PIN Pengelola (Aa) diperlukan untuk menambah, mengubah, atau menghapus kenangan.',
+        code: 'UNAUTHORIZED'
+      });
     }
 
     if (req.method === 'POST') {
