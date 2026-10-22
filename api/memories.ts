@@ -4,9 +4,10 @@ import {
   saveSharedMemories,
   saveSingleMemoryRecord,
   deleteSingleMemoryRecord,
-  deleteImageFile
+  deleteImageFile,
+  wipeAllSharedMemories
 } from './storage-helper.js';
-import { INITIAL_MEMORIES, MemoryItem } from '../src/utils/memories.js';
+import { MemoryItem } from '../src/utils/memories.js';
 import { isAuthorizedAdmin } from './auth-helper.js';
 
 export default async function handler(req: Request, res: Response) {
@@ -35,10 +36,10 @@ export default async function handler(req: Request, res: Response) {
     if (req.method === 'POST') {
       const action = req.query.action || (req.body && req.body.action);
       
-      // Reset action
+      // Reset action: Completely wipe all data (no prototype dummy data left)
       if (action === 'reset') {
-        await saveSharedMemories(INITIAL_MEMORIES);
-        return res.status(200).json({ success: true, memories: INITIAL_MEMORIES });
+        await wipeAllSharedMemories();
+        return res.status(200).json({ success: true, memories: [] });
       }
 
       // Add new memory

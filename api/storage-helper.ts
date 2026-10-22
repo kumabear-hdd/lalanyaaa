@@ -25,8 +25,7 @@ const HAS_VERCEL_BLOB = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
 
 /**
  * Loads memories from either Vercel Blob cloud storage or local persistent storage.
- * Combines master index with granular metadata record fallback to guarantee
- * zero data loss and avoid CDN caching issues.
+ * Returns shared array (including empty array [] if wiped).
  */
 export async function getSharedMemories(): Promise<MemoryItem[]> {
   if (HAS_VERCEL_BLOB) {
@@ -42,13 +41,13 @@ export async function getSharedMemories(): Promise<MemoryItem[]> {
         });
         if (res.ok) {
           const data = (await res.json()) as MemoryItem[];
-          if (Array.isArray(data) && data.length > 0) {
+          if (Array.isArray(data)) {
             return data;
           }
         }
       }
 
-      // 2. Resilient Fallback: Reconstruct from individual record blobs under metadata/
+      // 2. Fallback: check individual record blobs under metadata/
       const recordBlobs = await list({ prefix: 'metadata/' });
       if (recordBlobs.blobs && recordBlobs.blobs.length > 0) {
         const recordPromises = recordBlobs.blobs.map(async (b) => {
@@ -65,14 +64,8 @@ export async function getSharedMemories(): Promise<MemoryItem[]> {
         );
 
         if (fetchedRecords.length > 0) {
-          // Merge unique records with default memories
-          const userMemIds = new Set(fetchedRecords.map(r => r.id));
-          const baseDefaults = INITIAL_MEMORIES.filter(m => !userMemIds.has(m.id));
-          const reconstructed = [...fetchedRecords, ...baseDefaults];
-          
-          // Refresh master index in background
-          saveSharedMemories(reconstructed).catch(() => {});
-          return reconstructed;
+          saveSharedMemories(fetchedRecords).catch(() => {});
+          return fetchedRecords;
         }
       }
     } catch (err) {
@@ -85,7 +78,7 @@ export async function getSharedMemories(): Promise<MemoryItem[]> {
     try {
       const content = fs.readFileSync(LOCAL_JSON_FILE, 'utf8');
       const data = JSON.parse(content) as MemoryItem[];
-      if (Array.isArray(data) && data.length > 0) {
+      if (Array.isArray(data)) {
         return data;
       }
     } catch (err) {
@@ -93,9 +86,43 @@ export async function getSharedMemories(): Promise<MemoryItem[]> {
     }
   }
 
-  // Seed with initial memories
-  await saveSharedMemories(INITIAL_MEMORIES);
-  return INITIAL_MEMORIES;
+  return [];
+}
+
+/**
+ * Completely wipes all memories from Vercel Blob and local storage.
+ * Leaves 0 photos so only real user uploads are stored.
+ */
+export async function wipeAllSharedMemories(): Promise<void> {
+  // Clear local file to empty array
+  try {
+    fs.writeFileSync(LOCAL_JSON_FILE, JSON.stringify([], null, 2), 'utf8');
+  } catch (err) {
+    console.error('Error clearing local memories.json:', err);
+  }
+
+  if (HAS_VERCEL_BLOB) {
+    try {
+      // 1. Wipe master index
+      await put('database/memories_master.json', JSON.stringify([]), {
+        access: 'public',
+        addRandomSuffix: false,
+        cacheControlMaxAge: 0
+      });
+
+      // 2. Delete all metadata records
+      const { blobs } = await list({ prefix: 'metadata/' });
+      if (blobs && blobs.length > 0) {
+        for (const b of blobs) {
+          try {
+            await del(b.url);
+          } catch {}
+        }
+      }
+    } catch (err) {
+      console.error('Error wiping Vercel Blob records:', err);
+    }
+  }
 }
 
 /**

@@ -48,13 +48,15 @@ export function getCachedMemories(): MemoryItem[] {
     const favSet = getLocalFavoriteIds();
     if (raw) {
       const parsed = JSON.parse(raw) as MemoryItem[];
-      return parsed.map(m => ({
-        ...m,
-        isFavorite: favSet.has(m.id) ? true : m.isFavorite
-      }));
+      if (Array.isArray(parsed)) {
+        return parsed.map(m => ({
+          ...m,
+          isFavorite: favSet.has(m.id) ? true : m.isFavorite
+        }));
+      }
     }
   } catch {}
-  return INITIAL_MEMORIES;
+  return [];
 }
 
 export function getLocalFavoriteIds(): Set<string> {
