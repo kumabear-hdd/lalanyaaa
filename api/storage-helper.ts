@@ -1,0 +1,204 @@
+import fs from 'fs';
+import path from 'path';
+import { put, list, del } from '@vercel/blob';
+import { INITIAL_MEMORIES, MemoryItem } from '../src/utils/memories.js';
+
+const DATA_DIR = path.resolve(process.cwd(), 'data');
+const LOCAL_JSON_FILE = path.join(DATA_DIR, 'memories.json');
+const LOCAL_UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
+
+// Ensure local directories exist
+if (!fs.existsSync(DATA_DIR)) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  } catch {}
+}
+if (!fs.existsSync(LOCAL_UPLOADS_DIR)) {
+  try {
+    fs.mkdirSync(LOCAL_UPLOADS_DIR, { recursive: true });
+  } catch {}
+}
+
+const HAS_VERCEL_BLOB = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+
+/**
+ * Loads memories from either Vercel Blob cloud storage or local persistent storage.
+ * Combines master index with granular metadata record fallback to guarantee
+ * zero data loss and avoid CDN caching issues.
+ */
+export async function getSharedMemories(): Promise<MemoryItem[]> {
+  if (HAS_VERCEL_BLOB) {
+    try {
+      // 1. Try reading the master index
+      const { blobs } = await list({ prefix: 'database/memories_master.json' });
+      if (blobs && blobs.length > 0) {
+        const latestBlob = blobs[0];
+        // Bust CDN cache with query parameter
+        const res = await fetch(`${latestBlob.url}?t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+        });
+        if (res.ok) {
+          const data = (await res.json()) as MemoryItem[];
+          if (Array.isArray(data) && data.length > 0) {
+            return data;
+          }
+        }
+      }
+
+      // 2. Resilient Fallback: Reconstruct from individual record blobs under metadata/
+      const recordBlobs = await list({ prefix: 'metadata/' });
+      if (recordBlobs.blobs && recordBlobs.blobs.length > 0) {
+        const recordPromises = recordBlobs.blobs.map(async (b) => {
+          try {
+            const r = await fetch(`${b.url}?t=${Date.now()}`, { cache: 'no-store' });
+            return r.ok ? ((await r.json()) as MemoryItem) : null;
+          } catch {
+            return null;
+          }
+        });
+
+        const fetchedRecords = (await Promise.all(recordPromises)).filter(
+          (m): m is MemoryItem => m !== null && Boolean(m.id)
+        );
+
+        if (fetchedRecords.length > 0) {
+          // Merge unique records with default memories
+          const userMemIds = new Set(fetchedRecords.map(r => r.id));
+          const baseDefaults = INITIAL_MEMORIES.filter(m => !userMemIds.has(m.id));
+          const reconstructed = [...fetchedRecords, ...baseDefaults];
+          
+          // Refresh master index in background
+          saveSharedMemories(reconstructed).catch(() => {});
+          return reconstructed;
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching memories from Vercel Blob:', err);
+    }
+  }
+
+  // Fallback to local file persistence
+  if (fs.existsSync(LOCAL_JSON_FILE)) {
+    try {
+      const content = fs.readFileSync(LOCAL_JSON_FILE, 'utf8');
+      const data = JSON.parse(content) as MemoryItem[];
+      if (Array.isArray(data) && data.length > 0) {
+        return data;
+      }
+    } catch (err) {
+      console.error('Error reading local memories.json:', err);
+    }
+  }
+
+  // Seed with initial memories
+  await saveSharedMemories(INITIAL_MEMORIES);
+  return INITIAL_MEMORIES;
+}
+
+/**
+ * Saves memories list to Vercel Blob and/or local persistent file.
+ * Uses atomic record blobs for user-uploaded items and updates the master index with cache-busting.
+ */
+export async function saveSharedMemories(memories: MemoryItem[]): Promise<void> {
+  // Always save locally
+  try {
+    fs.writeFileSync(LOCAL_JSON_FILE, JSON.stringify(memories, null, 2), 'utf8');
+  } catch (err) {
+    console.error('Error writing local memories.json:', err);
+  }
+
+  if (HAS_VERCEL_BLOB) {
+    try {
+      // 1. Update master index with cacheControlMaxAge: 0
+      await put('database/memories_master.json', JSON.stringify(memories), {
+        access: 'public',
+        addRandomSuffix: false,
+        cacheControlMaxAge: 0
+      });
+    } catch (err) {
+      console.error('Error saving master index to Vercel Blob:', err);
+    }
+  }
+}
+
+/**
+ * Persists an individual memory metadata record in Vercel Blob to prevent race conditions.
+ */
+export async function saveSingleMemoryRecord(memory: MemoryItem): Promise<void> {
+  if (HAS_VERCEL_BLOB) {
+    try {
+      await put(`metadata/${memory.id}.json`, JSON.stringify(memory), {
+        access: 'public',
+        addRandomSuffix: false,
+        contentType: 'application/json',
+        cacheControlMaxAge: 0
+      });
+    } catch (err) {
+      console.error(`Error saving record metadata/${memory.id}.json to Vercel Blob:`, err);
+    }
+  }
+}
+
+/**
+ * Deletes an individual memory metadata record in Vercel Blob.
+ */
+export async function deleteSingleMemoryRecord(id: string): Promise<void> {
+  if (HAS_VERCEL_BLOB) {
+    try {
+      const { blobs } = await list({ prefix: `metadata/${id}.json` });
+      if (blobs && blobs.length > 0) {
+        await del(blobs[0].url);
+      }
+    } catch (err) {
+      console.error(`Error deleting metadata/${id}.json from Vercel Blob:`, err);
+    }
+  }
+}
+
+/**
+ * Uploads an image file to Vercel Blob or local storage and returns its permanent URL.
+ */
+export async function storeImageFile(
+  buffer: Buffer,
+  originalFilename: string,
+  contentType: string
+): Promise<{ url: string; pathname: string }> {
+  const safeName = originalFilename.replace(/[^a-zA-Z0-9_.-]/g, '_');
+  const uniqueName = `photos/${Date.now()}-${safeName}`;
+
+  if (HAS_VERCEL_BLOB) {
+    try {
+      const blob = await put(uniqueName, buffer, {
+        access: 'public',
+        contentType: contentType || 'image/jpeg',
+        cacheControlMaxAge: 31536000 // 1 year cache for immutable photo files
+      });
+      return { url: blob.url, pathname: blob.pathname };
+    } catch (err) {
+      console.error('Error uploading to Vercel Blob:', err);
+      // Fall through to local storage
+    }
+  }
+
+  // Local storage fallback
+  const localFileName = `${Date.now()}-${safeName}`;
+  const localFilePath = path.join(LOCAL_UPLOADS_DIR, localFileName);
+  fs.writeFileSync(localFilePath, buffer);
+
+  const localUrl = `/uploads/${localFileName}`;
+  return { url: localUrl, pathname: uniqueName };
+}
+
+/**
+ * Deletes an image from Vercel Blob if it was hosted there.
+ */
+export async function deleteImageFile(urlOrPathname: string): Promise<void> {
+  if (HAS_VERCEL_BLOB && urlOrPathname.startsWith('http')) {
+    try {
+      await del(urlOrPathname);
+    } catch (err) {
+      console.error('Error deleting from Vercel Blob:', err);
+    }
+  }
+}

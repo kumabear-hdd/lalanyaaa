@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .font-handwritten {
+    font-family: 'Caveat', cursive;
+  }
+  .font-serif-romantic {
+    font-family: 'Playfair Display', serif;
+  }
+  .font-rounded {
+    font-family: 'Nunito', system-ui, sans-serif;
+  }
+  .washi-tape {
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+    background: #ffffffa6;
+    position: relative;
+    box-shadow: 0 1px 3px #634b501f;
+  }
+  .paper-shadow {
+    box-shadow: 0 4px 20px -2px #634b5014, 0 2px 6px -1px #634b500f;
+  }
+  .polaroid-shadow {
+    box-shadow: 0 10px 25px -5px #634b501f, 0 8px 10px -6px #634b5014;
+  }
+  .window-shadow {
+    box-shadow: 0 20px 40px -15px #634b5033, 0 0 0 1px #eba7ba4d;
+  }
+}
+
+@keyframes gentle-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-6px) rotate(1deg); }
+}
+
+@keyframes flower-sway {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(2deg); }
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.95; transform: scale(1.04); }
+}
+
+.animate-gentle-float {
+  animation: 4s ease-in-out infinite gentle-float;
+}
+
+.animate-flower-sway {
+  transform-origin: bottom;
+  animation: 5s ease-in-out infinite flower-sway;
+}
+
+.animate-pulse-subtle {
+  animation: 2.5s ease-in-out infinite pulse-subtle;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #FFF9F2;
+}
+::-webkit-scrollbar-thumb {
+  background: #F7C9D4;
+  border: 2px solid #FFF9F2;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #EBA7BA;
+}

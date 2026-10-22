@@ -1,0 +1,6 @@
+{
+  "name": "Our Little Universe — Aa & Lalaa",
+  "description": "Interactive romantic memory desktop, digital scrapbook, bouquet & music player for Aa & Lalaa with cross-device photo sync.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
